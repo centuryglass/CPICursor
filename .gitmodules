@@ -1,0 +1,8 @@
+[submodule "deps/FBPainter"]
+	path = deps/FBPainter
+	url = https://github.com/centuryglass/FBPainter
+	branch = master
+[submodule "deps/KeyDaemon"]
+	path = deps/KeyDaemon
+	url = https://github.com/centuryglass/KeyDaemon
+	branch = master
