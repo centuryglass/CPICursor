@@ -1,81 +1,47 @@
-define HELPTEXT
-## CPICursor Makefile ##
-# Usage: make [target] [options]
-# Typical installation process:
-#   make
-#   make install
-endef
-export HELPTEXT
+## Quick Guide: ##
+# 1. Ensure the following variables are defined when building the daemon:
+#    - CPD_TARGET_APP
+#    - CPD_BUILD_DIR
+#    - CPD_PARENT_PATH
+#    - CPD_PIPE_PATH
+#    - CPD_LOCK_PATH
+#
+# 2. Optionally, provide valid definitions for these additional variables to
+#    enable features or override default values:
+#    - CPD_CONFIG
+#    - CPD_VERBOSE
+###
 
-####################### Initialize build variables: ##########################
-# Version number:
-APP_VERSION=0.0.1
-# Version hex.
-APP_VERSION_HEX=0x1
+######################## Initialize build variables: ##########################
+# Default Build Options:
 # Build type: either Debug or Release
-CONFIG?=Release
+CPD_CONFIG?=Release
 # Command used to strip unneeded symbols from object files:
 STRIP?=strip
 # Use the build system's architecture by default.
 TARGET_ARCH?=-march=native
 # Enable or disable verbose output
-VERBOSE?=0
-V_AT:=$(shell if [ $(VERBOSE) != 1 ]; then echo '@'; fi)
+CPD_VERBOSE?=0
+V_AT:=$(shell if [ $(CPD_VERBOSE) != 1 ]; then echo '@'; fi)
 
-########################### Project file names: ##############################
-TARGET_APP=CPICursor
-
-# DaemonFramework file names:
-DF_PARENT_MK=Parent.mk
-DF_DAEMON_MK=Daemon.mk
-
-
-# PaintDaemon file names:
-PAINT_DAEMON=cursorPainterd
-PAINT_LOCK_FILE=.fbLock
-PAINT_PIPE_FILE=.fbPipe
-PAINT_MK=Makefile
-PAINT_PARENT_MK=Parent.mk
-
-########################### Project directories: #############################
-PROJECT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
-BUILD_DIR:=$(PROJECT_DIR)/build/$(CONFIG)
-OBJDIR:=$(BUILD_DIR)/intermediate
-INSTALL_DIR=/usr/bin
-TMP_DIR=/var/tmp/.$(TARGET_APP)
-CURSOR_KEYD_DIR:=$(PROJECT_DIR)/cursorKeyd
-CURSOR_PAINTERD_DIR:=$(PROJECT_DIR)/cursorPainterd
-
-# DaemonFramework directories:
+# Define project directories:
+PAINTERD_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
+PROJECT_DIR:=$(shell dirname $(PAINTERD_DIR))
 DAEMON_FRAMEWORK_DIR:=$(PROJECT_DIR)/deps/DaemonFramework
-DF_OBJDIR:=$(OBJDIR)/DaemonFramework
+FBPAINTER_DIR:=$(PROJECT_DIR)/deps/FBPainter
+OBJDIR:=$(PAINTERD_DIR)/build/$(CPD_CONFIG)
 
-# FBPainter directories:
+# Define specific file paths:
+TARGET_BUILD_PATH:=$(CPD_BUILD_DIR)/$(CPD_TARGET_APP)
 
-# KeyDaemon directories:
-KEY_DAEMON_DIR:=$(PROJECT_DIR)/deps/KeyDaemon
-KEY_DAEMON_OUTDIR:=$(BUILD_DIR)/$(CONFIG)/$(KEY_DAEMON)
-KEY_DAEMON_OBJDIR:=$(KEY_DAEMON_OUTDIR)/intermediate
-
-
-DATA_PATH:=/usr/share/$(TARGET_APP)
-BUILD_PATH:=$(OUTDIR)/$(TARGET_APP)
-INSTALL_PATH:=$(INSTALL_DIR)/$(TARGET_APP)
-
-# DaemonFramework file names and paths:
-DAEMON_FRAMEWORK_PARENT_MK:=$(DAEMON_FRAMEWORK_DIR)/Parent.mk
-DAEMON_FRAMEWORK_DAEMON_MK:=$(DAEMON_FRAMEWORK_DIR)/Daemon.mk
-
-# KeyDaemon file names and paths:
-KEY_DAEMON_BUILD_PATH:=$(KEY_DAEMON_OUTDIR)/$(KEY_DAEMON)
-KEY_DAEMON_INSTALL_PATH:=$(DATA_PATH)/$(KEY_DAEMON)
-
-# FBPainter file names and paths:
-FRAME_DAEMON_DIR:=$(PROJECT_DIR)/deps/FBPainter
-FRAME_DAEMON_OUTDIR:=$(BUILD_DIR)/$(CONFIG)/$(FRAME_DAEMON)
-FRAME_DAEMON_OBJDIR:=$(FRAME_DAEMON_OUTDIR)/intermediate
-FRAME_DAEMON_BUILD_PATH:=$(FRAME_DAEMON_OUTDIR)/$(FRAME_DAEMON)
-FRAME_DAEMON_INSTALL_PATH:=$(DATA_PATH)/$(FRAME_DAEMON)
+########################## Primary build target: ##############################
+$(TARGET_BUILD_PATH) : build
+	@echo Linking "$(CPD_TARGET_APP):"
+	@if [ "$(CPD_VERBOSE)" == "1" ]; then \
+        $(DAEMON_FRAMEWORK_DIR)/cleanPrint.sh '$(CXX) $(LINK_ARGS)'; \
+        echo ''; \
+    fi
+	@$(CXX) $(LINK_ARGS)
 
 # List additional library flags here:
 LDFLAGS := $(LDFLAGS)
@@ -87,7 +53,8 @@ CPPFLAGS := $(CPPFLAGS)
 CXXFLAGS := -std=gnu++14 $(CXXFLAGS)
 
 # Directories to search for header files:
-INCLUDE_DIRS :=
+# Borrow the KeyDaemon's Process module:
+INCLUDE_DIRS := ../deps/KeyDaemon/Source/Process
 
 # Directories to recursively search for header files:
 RECURSIVE_INCLUDE_DIRS := Source
@@ -154,6 +121,7 @@ endif
 CPPFLAGS := $(DEPFLAGS) \
             $(CONFIG_FLAGS) \
 	        $(DIR_FLAGS) \
+            $(shell pkg-config --cflags $(PKG_CONFIG_LIBS)) \
             $(CPPFLAGS)
 
 CFLAGS := $(CPPFLAGS) \
@@ -168,14 +136,13 @@ LDFLAGS := $(TARGET_ARCH) \
 	       -L$(BINDIR) \
 	       -L$(LIBDIR) \
 	        $(CONFIG_LDFLAGS) \
+            $(shell pkg-config --libs $(PKG_CONFIG_LIBS)) \
 	        $(LDFLAGS)
 
 CLEANCMD = rm -rf $(OUTDIR)/$(TARGET) $(OBJDIR)
 
-.PHONY: build cursorKeyd install debug release clean strip uninstall help
-
+.PHONY: build install debug release clean strip uninstall help
 build : $(OUTDIR)/$(TARGET_APP)
-
 
 OBJECTS_APP := $(OBJDIR)/Main.o \
                $(OBJECTS_APP)
@@ -235,23 +202,3 @@ help:
 
 $(OBJDIR)/Main.o: \
 	Main.cpp
-
-######################## Cursor KeyDaemon building: ##########################
-KEY_DAEMON=cursorKeyd
-KEY_LOCK_FILE=.keyLock
-KEY_PIPE_FILE=.keyPipe
-
-KEY_MAKEARGS:=KD_TARGET_APP=$(KEY_DAEMON) KD_INSTALL_DIR=$(DATA_PATH) \
-              DAEMON_FRAMEWORK_DIR=$(DAEMON_FRAMEWORK_DIR) \
-              KD_PARENT_PATH=$(INSTALL_PATH) \
-              KD_PIPE_PATH=$(TMP_DIR)/$(KEY_PIPE_FILE) \
-              KD_LOCK_PATH=$(TMP_DIR)/$(KEY_LOCK_FILE) \
-              KD_CONFIG:=$(CONFIG) \
-              KD_VERBOSE:=$(VERBOSE)
-
-$(KEY_DAEMON) :
-	@echo "building $(KEY_DAEMON), dir = $(CURSOR_KEYD_DIR)"
-	-$(V_AT)make -f $(CURSOR_KEYD_DIR)/Makefile $(KEY_MAKEARGS)
-
-
-##################### Cursor Painter Daemon building: ########################
