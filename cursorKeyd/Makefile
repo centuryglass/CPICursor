@@ -1,8 +1,9 @@
 # cursorKeyd
-# Reads keyboard input to control a virtual cursor.
+# Reads keyboard input to control a mouse cursor.
 
 # The following variables should be passed in from the main project makefile:
 #  - KD_TARGET_APP:  Daemon executable name
+#  - KD_BUILD_DIR:   Daemon executable build directory
 #  - KD_INSTALL_DIR: Daemon installation directory
 #  - KD_PARENT_PATH: CPICursor installation path
 #  - KD_PIPE_PATH:   Path to the pipe used to send key events to CPICursor

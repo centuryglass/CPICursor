@@ -1,204 +1,224 @@
+# cursorPainterd is responsible for drawing the cursor to the frame buffer.
+# To access the frame buffer, it always executes as the "video" group.
+#
+#  To keep its extra privileges from being exploited, it uses DaemonFramework
+# to ensure that it may only be controlled by CPICursor, and it restricts
+# itself to drawing a single cursor image embedded in its source code.
+#
 ## Quick Guide: ##
 # 1. Ensure the following variables are defined when building the daemon:
-#    - CPD_TARGET_APP
-#    - CPD_BUILD_DIR
-#    - CPD_PARENT_PATH
-#    - CPD_PIPE_PATH
-#    - CPD_LOCK_PATH
+#    - TARGET_APP
+#    - BUILD_DIR
+#    - INSTALL_DIR
+#    - PARENT_PATH
+#    - PIPE_PATH
+#    - LOCK_PATH
 #
 # 2. Optionally, provide valid definitions for these additional variables to
 #    enable features or override default values:
-#    - CPD_CONFIG
-#    - CPD_VERBOSE
+#    - CONFIG
+#    - VERBOSE
 ###
 
 ######################## Initialize build variables: ##########################
 # Default Build Options:
 # Build type: either Debug or Release
-CPD_CONFIG?=Release
+CONFIG?=Release
 # Command used to strip unneeded symbols from object files:
 STRIP?=strip
 # Use the build system's architecture by default.
 TARGET_ARCH?=-march=native
 # Enable or disable verbose output
-CPD_VERBOSE?=0
-V_AT:=$(shell if [ $(CPD_VERBOSE) != 1 ]; then echo '@'; fi)
+VERBOSE?=0
+V_AT:=$(shell if [ $(VERBOSE) != 1 ]; then echo '@'; fi)
+# Name of the group given special access to the frame buffer:
+FB_GROUP=video
+# Path to the frame buffer device file:
+FB_PATH=/dev/fb0
 
 # Define project directories:
 PAINTERD_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
+SOURCE_DIR:=$(PAINTERD_DIR)/Source
 PROJECT_DIR:=$(shell dirname $(PAINTERD_DIR))
 DAEMON_FRAMEWORK_DIR:=$(PROJECT_DIR)/deps/DaemonFramework
 FBPAINTER_DIR:=$(PROJECT_DIR)/deps/FBPainter
-OBJDIR:=$(PAINTERD_DIR)/build/$(CPD_CONFIG)
+OBJDIR:=$(PAINTERD_DIR)/build/$(CONFIG)
 
 # Define specific file paths:
-TARGET_BUILD_PATH:=$(CPD_BUILD_DIR)/$(CPD_TARGET_APP)
+TARGET_BUILD_PATH:=$(BUILD_DIR)/$(TARGET_APP)
+
+# Set default build target:
+.PHONY: build clean install uninstall
+build : $(TARGET_BUILD_PATH)
+
+####################### Daemon Framework setup: ##############################
+DF_OBJDIR:=$(OBJDIR)/DaemonFramework
+DF_CONFIG:=$(CONFIG)
+DF_VERBOSE:=$(VERBOSE)
+DF_INPUT_PIPE_PATH:=$(PIPE_PATH)
+DF_DAEMON_PATH:=$(INSTALL_DIR)/$(TARGET_APP)
+DF_REQUIRED_PARENT_PATH:=$(PARENT_PATH)
+DF_LOCK_FILE_PATH:=$(LOCK_PATH)
+
+include $(DAEMON_FRAMEWORK_DIR)/Daemon.mk
+
+########################### FBPainter setup: #################################
+FBP_OBJDIR:=$(OBJDIR)/FBPainter
+FBP_ENABLE_LIBPNG=0
+FBP_CONFIG:=$(CONFIG)
+FBP_VERBOSE:=$(VERBOSE)
+
+include $(FBPAINTER_DIR)/Makefile
+
+# Build image encoder:
+IMG_ENCODE_DIR:=$(FBPAINTER_DIR)/ImageEncoder
+FBP_ENCODER:=$(IMG_ENCODE_DIR)/ImageEncoder
+$(FBP_ENCODER) :
+	@echo "Building ImageEncoder"
+	$(V_AT)make -f $(IMG_ENCODE_DIR)/Makefile
+
+# Generate cursor code files:
+CURSOR_NAME=Cursor
+CURSOR_IMAGE:=$(PAINTERD_DIR)/$(CURSOR_NAME).png
+CURSOR_CPP:=$(SOURCE_DIR)/$(CURSOR_NAME).cpp
+CURSOR_H:=$(SOURCE_DIR)/$(CURSOR_NAME).h
+$(CURSOR_CPP) : $(FBP_ENCODER)
+	@echo "Encoding $(CURSOR_NAME).png"
+	$(V_AT)$(FBP_ENCODER) $(CURSOR_IMAGE)
+	$(V_AT)mv $(PAINTERD_DIR)/$(CURSOR_NAME).h $(CURSOR_H)
+	$(V_AT)mv $(PAINTERD_DIR)/$(CURSOR_NAME).cpp $(CURSOR_CPP)
+
+# Create the pipe file to be writable only by the current user, and readable
+# only by members of $(FB_GROUP)
+INSTALLING_USER:=$$USER
+$(PIPE_PATH) :
+	@echo "Creating pipe file at \"$(PIPE_PATH)\""
+	$(V_AT)if [ -f $(PIPE_PATH) ]; then \
+	    sudo rm $(PIPE_PATH); \
+	fi
+	$(V_AT)sudo mkfifo $(PIPE_PATH)
+	$(V_AT)sudo chown $(INSTALLING_USER):$(FB_GROUP) $(PIPE_PATH)
+	$(V_AT)sudo chmod 'u=wr,g=r,o=' $(PIPE_PATH)
+
+
+############################## Set build flags: ##############################
+#### Config-specific flags: ####
+ifeq ($(CONFIG),Debug)
+    OPTIMIZATION?=0
+    GDB_SUPPORT?=1
+    # Debug-specific preprocessor definitions:
+    CONFIG_FLAGS=-DDEBUG=1 -DDF_DEBUG=1
+endif
+
+ifeq ($(CONFIG),Release)
+    OPTIMIZATION?=1
+    GDB_SUPPORT?=0
+endif
+
+# Set optimization level flags:
+ifeq ($(OPTIMIZATION),1)
+    CONFIG_CFLAGS=-O3 -flto
+    CONFIG_LDFLAGS:=-flto
+else
+    CONFIG_CFLAGS=-O0
+endif
+
+# Set debugger flags:
+ifeq ($(GDB_SUPPORT),1)
+    CONFIG_CFLAGS:=$(CONFIG_CFLAGS) -g -ggdb
+else
+    CONFIG_LDFLAGS:=$(CONFIG_LDFLAGS) -fvisibility=hidden
+endif
+
+#### C compilation flags: ####
+CFLAGS:=$(TARGET_ARCH) $(CONFIG_CFLAGS) $(CFLAGS)
+
+#### C++ compilation flags: ####
+CXXFLAGS:=-std=gnu++14 $(CXXFLAGS)
+
+#### C Preprocessor flags: ####
+
+# Include directories:
+INCLUDE_FLAGS:=-I$(SOURCE_DIR) $(FBP_INCLUDE_FLAGS) $(DF_INCLUDE_FLAGS) \
+               $(INCLUDE_FLAGS)
+
+# Disable dependency generation if multiple architectures are set
+DEPFLAGS:=$(if $(word 2, $(TARGET_ARCH)), , -MMD)
+
+DEFINE_FLAGS:=$(call addStringDef,FB_PATH) $(DF_DEFINE_FLAGS) \
+              $(FBP_DEFINE_FLAGS) $(DEFINE_FLAGS)
+
+CPPFLAGS:=-pthread \
+          $(DEPFLAGS) \
+          $(CONFIG_FLAGS) \
+          $(DEFINE_FLAGS) \
+          $(INCLUDE_FLAGS) \
+          $(CPPFLAGS)
+
+#### Linker flags: ####
+LDFLAGS:=-lpthread $(KD_TARGET_ARCH) $(CONFIG_LDFLAGS) $(LDFLAGS)
+
+#### Aggregated build arguments: ####
+
+PAINTERD_OBJECTS:=$(OBJDIR)/Main.o \
+                  $(OBJDIR)/Cursor.o \
+                  $(OBJDIR)/PainterLoop.o
+ 
+# Complete set of flags used to compile source files:
+BUILD_FLAGS:=$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
+
+# Complete set of arguments used to link the program:
+LINK_ARGS:= -o $(TARGET_BUILD_PATH) $(PAINTERD_OBJECTS) $(DF_OBJECTS_DAEMON) \
+            $(FBPAINTER_OBJECTS) $(LDFLAGS)
 
 ########################## Primary build target: ##############################
-$(TARGET_BUILD_PATH) : build
-	@echo Linking "$(CPD_TARGET_APP):"
-	@if [ "$(CPD_VERBOSE)" == "1" ]; then \
+$(TARGET_BUILD_PATH) : fbpainter df-daemon $(PAINTERD_OBJECTS)
+	@echo Linking "$(TARGET_APP):"
+	@if [ "$(VERBOSE)" == "1" ]; then \
         $(DAEMON_FRAMEWORK_DIR)/cleanPrint.sh '$(CXX) $(LINK_ARGS)'; \
         echo ''; \
     fi
 	@$(CXX) $(LINK_ARGS)
 
-# List additional library flags here:
-LDFLAGS := $(LDFLAGS)
-
-# Extra compilation flags:
-CPPFLAGS := $(CPPFLAGS)
-
-# Extra compilation flags (C++ only):
-CXXFLAGS := -std=gnu++14 $(CXXFLAGS)
-
-# Directories to search for header files:
-# Borrow the KeyDaemon's Process module:
-INCLUDE_DIRS := ../deps/KeyDaemon/Source/Process
-
-# Directories to recursively search for header files:
-RECURSIVE_INCLUDE_DIRS := Source
-
-#### Setup: ####
-
-# build with "V=1" for verbose builds
-ifeq ($(V), 1)
-    V_AT =
-else
-    V_AT = @
-endif
-
-# Disable dependency generation if multiple architectures are set
-DEPFLAGS := $(if $(word 2, $(TARGET_ARCH)), , -MMD)
-
-# Generate the list of directory include flags:
-DIR_FLAGS := $(shell echo $(INCLUDE_DIRS) | xargs printf " -I'%s'") \
-             $(shell find $(RECURSIVE_INCLUDE_DIRS) -type d \
-                     -printf " -I'%p'")
-
-# Keep debug and release build files in separate directories:
-OBJDIR := $(OBJDIR)/$(CONFIG)
-OUTDIR := $(OUTDIR)/$(CONFIG)
-
-ifeq ($(CONFIG),Debug)
-    # Disable optimization and enable gdb flags and tests unless otherwise
-    # specified:
-    OPTIMIZATION ?= 0
-    GDB_SUPPORT ?= 1
-    BUILD_TESTS ?= 1
-    # Debug-specific preprocessor definitions:
-    CONFIG_FLAGS = -DDEBUG=1 -D_DEBUG=1
-    ifeq ($(V), 1)
-        CONFIG_FLAGS := -DDEBUG_VERBOSE=1 $(CONFIG_FLAGS)
-    endif
-endif
-
-ifeq ($(CONFIG),Release)
-    # Enable optimization and disable gdb flags and tests unless otherwise
-    # specified:
-    OPTIMIZATION ?= 1
-    GDB_SUPPORT ?= 0
-    BUILD_TESTS ?= 0
-    # Release-specific preprocessor definitions:
-    CONFIG_FLAGS = -DNDEBUG=1
-endif
-
-# Set optimization level flags:
-ifeq ($(OPTIMIZATION), 1)
-    CONFIG_CFLAGS := $(CONFIG_CFLAGS) -O3 -flto
-    CONFIG_LDFLAGS := $(CONFIG_LDFLAGS) -flto
-else
-    CONFIG_CFLAGS := $(CONFIG_CFLAGS) -O0
-endif
-
-# Set debugging flags:
-ifeq ($(GDB_SUPPORT), 1)
-    CONFIG_CFLAGS := $(CONFIG_CFLAGS) -g -ggdb
-else
-    CONFIG_LDFLAGS := $(CONFIG_LDFLAGS) -fvisibility=hidden
-endif
-
-CPPFLAGS := $(DEPFLAGS) \
-            $(CONFIG_FLAGS) \
-	        $(DIR_FLAGS) \
-            $(shell pkg-config --cflags $(PKG_CONFIG_LIBS)) \
-            $(CPPFLAGS)
-
-CFLAGS := $(CPPFLAGS) \
-		  $(TARGET_ARCH) \
-          $(CONFIG_CFLAGS) \
-          $(CFLAGS)
-
-CXXFLAGS := $(CFLAGS) \
-            $(CXXFLAGS)
-
-LDFLAGS := $(TARGET_ARCH) \
-	       -L$(BINDIR) \
-	       -L$(LIBDIR) \
-	        $(CONFIG_LDFLAGS) \
-            $(shell pkg-config --libs $(PKG_CONFIG_LIBS)) \
-	        $(LDFLAGS)
-
-CLEANCMD = rm -rf $(OUTDIR)/$(TARGET) $(OBJDIR)
-
-.PHONY: build install debug release clean strip uninstall help
-build : $(OUTDIR)/$(TARGET_APP)
-
-OBJECTS_APP := $(OBJDIR)/Main.o \
-               $(OBJECTS_APP)
-
-$(OUTDIR)/$(TARGET_APP) : $(OBJECTS_APP) $(RESOURCES)
-	@echo Linking "$(TARGET_APP)"
-	-$(V_AT)mkdir -p $(BINDIR)
-	-$(V_AT)mkdir -p $(LIBDIR)
-	-$(V_AT)mkdir -p $(OUTDIR)
-	$(V_AT)$(CXX) -o $(OUTDIR)/$(TARGET_APP) $(OBJECTS_APP) \
-		             $(LDFLAGS) $(LDFLAGS_APP) $(RESOURCES) \
-					 $(TARGET_ARCH)
-
-$(OBJECTS_APP) :
-	-$(V_AT)mkdir -p $(OBJDIR)
-	@echo "      Compiling: $(<F)"
-	$(V_AT)$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(CFLAGS) \
-		-o "$@" -c "$<"
-
-install:
-	killall $(TARGET_APP);\
-	sudo cp build/$(CONFIG)/$(TARGET_APP) $(INSTALL_PATH); \
-	if [ ! -d $(DATA_PATH) ; \
-        sudo mkdir $(DATA_PATH) ; \
-    fi && \
-    sudo cp -R assets/* $(DATA_PATH)
-
-
-debug:
-	$(MAKE) CONFIG=Debug
-	reset
-	$(MAKE) install CONFIG=Debug
-	gdb $(TARGET_APP)
-
-release:
-	$(MAKE) CONFIG=Release
-	reset
-	$(MAKE) install CONFIG=Release
+###################### Supporting Build Targets: ##############################
 
 clean:
-	@echo Cleaning $(TARGET_APP)
-	$(V_AT)$(CLEANCMD)
+	@echo "Cleaning $(TARGET_APP):"
+	$(V_AT)if [ -d $(OBJDIR) ]; then \
+	    rm -rf $(OBJDIR); \
+    fi; \
+    if [ -f $(TARGET_BUILD_PATH) ]; then \
+	    rm $(TARGET_BUILD_PATH); \
+    fi
 
-strip:
-	@echo Stripping $(TARGET_APP)
-	-$(V_AT)$(STRIP) --strip-unneeded $(OUTDIR)/$(TARGET)
+install: $(PIPE_PATH)
+	@echo "Installing $(TARGET_APP):"
+	$(V_AT)if [ ! -d $(INSTALL_DIR) ]; then \
+		sudo mkdir $(INSTALL_DIR) ; \
+	fi
+	$(V_AT)sudo cp $(TARGET_BUILD_PATH) $(INSTALL_DIR)/$(TARGET_APP)
+	$(V_AT)sudo chown :$(FB_GROUP) $(INSTALL_DIR)/$(TARGET_APP)
+	$(V_AT)sudo chmod g+s $(INSTALL_DIR)/$(TARGET_APP)
+	$(V_AT)sudo setcap -q cap_sys_ptrace+ep $(INSTALL_DIR)/$(TARGET_APP);
+
 
 uninstall:
-	@echo Uninstalling $(TARGET_APP)
-	killall $(TARGET_APP);\
-	sudo rm $(INSTALL_PATH) ; \
+	@echo "Uninstalling $(TARGET_APP):"
+	-$(V_AT)sudo rm $(INSTALL_DIR)/$(TARGET_APP)
 
-help:
-	@echo "$$HELPTEXT"
+$(PAINTERD_OBJECTS) :
+	@echo "Compiling $(<F):"
+	$(V_AT)mkdir -p $(OBJDIR)
+	@if [ "$(VERBOSE)" == "1" ]; then \
+        $(DAEMON_FRAMEWORK_DIR)/cleanPrint.sh '$(CXX) $(BUILD_FLAGS)'; \
+        echo '    -o "$@" \'; \
+        echo '    -c "$<"'; \
+        echo ''; \
+	fi
+	@$(CXX) $(BUILD_FLAGS) -o "$@" -c "$<"
 
--include $(OBJECTS_APP:%.o=%.d)
+-include $(PAINTERD_OBJECTS:%.o=%.d)
 
-$(OBJDIR)/Main.o: \
-	Main.cpp
+$(OBJDIR)/Main.o: $(SOURCE_DIR)/Main.cpp
+$(OBJDIR)/Cursor.o: $(CURSOR_CPP)
+$(OBJDIR)/PainterLoop.o: $(SOURCE_DIR)/PainterLoop.cpp
