@@ -53,6 +53,13 @@ $(TARGET_BUILD_PATH) : build
     fi
 	@$(CXX) $(LINK_ARGS)
 
+########################## Daemon parent support: ############################
+DF_OBJDIR:=$(OBJDIR)/DaemonFramework
+DF_CONFIG:=$(CONFIG)
+DF_VERBOSE:=$(VERBOSE)
+
+include $(DAEMON_FRAMEWORK_DIR)/Parent.mk
+
 ######################## Cursor KeyDaemon building: ##########################
 KEY_DAEMON=cursorKeyd
 KEYD_DIR:=$(PROJECT_DIR)/$(KEY_DAEMON)
@@ -61,11 +68,23 @@ KEYD_PATH:=$(KEYD_BUILD)/$(KEY_DAEMON)
 KEYD_PIPE_FILE=.keyPipe
 KEYD_LOCK_FILE=.keyLock
 
+# Definitions needed for building KeyDaemon control class:
+KD_OBJDIR:=$(OBJDIR)/DaemonFramework
+KD_PARENT_PATH:=$(TARGET_INSTALL_PATH)
+KD_DAEMON_PATH:=$(DATA_PATH)/$(KEY_DAEMON)
+KD_PIPE_PATH:=$(TMP_DIR)/$(KEYD_PIPE_FILE)
+KD_KEY_LIMIT:=7  # Four arrow keys, left-click, right-click, cancel
+KD_CONFIG:=$(CONFIG)
+KD_VERBOSE?=0
+
+include $(KEY_DAEMON_DIR)/Parent.mk
+
 KEYD_MAKE:=make -f $(KEYD_DIR)/Makefile
 
 KEYD_MAKEARGS:=KD_TARGET_APP=$(KEY_DAEMON) KD_INSTALL_DIR=$(DATA_PATH) \
               KD_BUILD_DIR=$(KEYD_BUILD) \
               DAEMON_FRAMEWORK_DIR=$(DAEMON_FRAMEWORK_DIR) \
+              KD_KEY_LIMIT=$(KD_KEY_LIMIT) \
               KD_PARENT_PATH=$(TARGET_INSTALL_PATH) \
               KD_PIPE_PATH=$(TMP_DIR)/$(KEYD_PIPE_FILE) \
               KD_LOCK_PATH=$(TMP_DIR)/$(KEYD_LOCK_FILE) \
@@ -91,9 +110,11 @@ PAINTERD_DIR:=$(PROJECT_DIR)/$(PAINTER_DAEMON)
 PAINTERD_BUILD_DIR:=$(PAINTERD_DIR)/build/$(CONFIG)
 PAINTERD_BUILD_PATH:=$(PAINTERD_BUILD_DIR)/$(PAINTER_DAEMON)
 PAINTERD_PATH:=$(DATA_PATH)/$(PAINTER_DAEMON)
-PAINTERD_PIPE_FILE=.paintPipe
+PAINTERD_INPUT_PIPE_FILE=.paintIn
+PAINTERD_OUTPUT_PIPE_FILE=.paintOut
 PAINTERD_LOCK_FILE=.paintLock
-PAINTERD_PIPE_PATH:=$(DATA_PATH)/$(PAINTERD_PIPE_FILE)
+PAINTERD_INPUT_PIPE_PATH:=$(DATA_PATH)/$(PAINTERD_INPUT_PIPE_FILE)
+PAINTERD_OUTPUT_PIPE_PATH:=$(DATA_PATH)/$(PAINTERD_OUTPUT_PIPE_FILE)
 PAINTERD_LOCK_PATH:=$(TMP_DIR)/$(PAINTERD_LOCK_FILE)
 
 PAINTERD_MAKE:=make -f $(PAINTERD_DIR)/Makefile
@@ -102,7 +123,8 @@ PAINTERD_MAKEARGS:=TARGET_APP=$(PAINTER_DAEMON) \
                    BUILD_DIR=$(PAINTERD_BUILD_DIR) \
                    INSTALL_DIR=$(DATA_PATH) \
                    PARENT_PATH=$(INSTALL_PATH) \
-                   PIPE_PATH=$(PAINTERD_PIPE_PATH) \
+                   INPUT_PIPE_PATH=$(PAINTERD_INPUT_PIPE_PATH) \
+                   OUTPUT_PIPE_PATH=$(PAINTERD_OUTPUT_PIPE_PATH) \
                    LOCK_PATH=$(PAINTERD_LOCK_PATH) \
                    CONFIG=$(CONFIG) \
                    VERBOSE=$(VERBOSE)
@@ -119,13 +141,6 @@ painterd-install :
 
 painterd-uninstall :
 	-$(V_AT)$(PAINTERD_MAKE) uninstall $(PAINTERD_MAKEARGS)
-
-########################## Daemon parent support: ############################
-DF_OBJDIR:=$(OBJDIR)/DaemonFramework
-DF_CONFIG:=$(CONFIG)
-DF_VERBOSE:=$(VERBOSE)
-
-include $(DAEMON_FRAMEWORK_DIR)/Parent.mk
 
 ############################## Set build flags: ##############################
 #### Config-specific flags: ####
@@ -165,14 +180,20 @@ CXXFLAGS:=-std=gnu++14 $(CXXFLAGS)
 #### C Preprocessor flags: ####
 
 # Include directories:
-INCLUDE_FLAGS:=-I$(SOURCE_DIR) $(DF_INCLUDE_FLAGS) $(INCLUDE_FLAGS)
+INCLUDE_FLAGS:=-I$(SOURCE_DIR) \
+               $(DF_INCLUDE_FLAGS) \
+               $(KD_INCLUDE_FLAGS) \
+               $(INCLUDE_FLAGS)
 
 # Disable dependency generation if multiple architectures are set
 DEPFLAGS:=$(if $(word 2, $(TARGET_ARCH)), , -MMD)
 
 DEFINE_FLAGS:=$(call addStringDef,PAINTERD_PATH) \
-              $(call addStringDef,PAINTERD_PIPE_PATH) \
-              $(DF_DEFINE_FLAGS) $(FBP_DEFINE_FLAGS) $(DEFINE_FLAGS)
+              $(call addStringDef,PAINTERD_INPUT_PIPE_PATH) \
+              $(call addStringDef,PAINTERD_OUTPUT_PIPE_PATH) \
+              $(DF_DEFINE_FLAGS) \
+              $(KD_DEFINE_FLAGS) \
+              $(FBP_DEFINE_FLAGS) $(DEFINE_FLAGS)
 
 CPPFLAGS:=-pthread \
           $(DEPFLAGS) \
@@ -186,18 +207,21 @@ LDFLAGS := -lpthread $(TARGET_ARCH) $(CONFIG_LDFLAGS) $(LDFLAGS)
 
 #### Aggregated build arguments: ####
 
-OBJECTS:=$(OBJDIR)/Main.o $(OBJDIR)/CursorPainter.o
+OBJECTS:=$(OBJDIR)/Main.o \
+         $(OBJDIR)/CursorPainter.o \
+         $(OBJDIR)/DisplayListener.o \
+         $(OBJDIR)/KeyListener.o
 
 # Complete set of flags used to compile source files:
 BUILD_FLAGS:=$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
 
 # Complete set of arguments used to link the program:
 LINK_ARGS:= -o $(TARGET_BUILD_PATH) $(OBJECTS) $(DF_OBJECTS_PARENT) \
-               $(LDFLAGS)
+               $(KD_OBJECTS_PARENT) $(LDFLAGS)
 
 ###################### Supporting Build Targets: ##############################
 
-build : df-parent keyd-build painterd-build $(OBJECTS)
+build : df-parent kd-parent keyd-build painterd-build $(OBJECTS)
 
 clean : keyd-clean painterd-clean
 	@echo "Cleaning $(TARGET_APP)"
@@ -236,3 +260,7 @@ $(OBJDIR)/Main.o: \
     $(SOURCE_DIR)/Main.cpp
 $(OBJDIR)/CursorPainter.o: \
     $(SOURCE_DIR)/CursorPainter.cpp
+$(OBJDIR)/DisplayListener.o: \
+    $(SOURCE_DIR)/DisplayListener.cpp
+$(OBJDIR)/KeyListener.o: \
+    $(SOURCE_DIR)/KeyListener.cpp

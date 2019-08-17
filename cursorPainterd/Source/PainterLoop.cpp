@@ -11,13 +11,21 @@ static const constexpr char* messagePrefix = "PainterLoop::";
 static const constexpr int maxFPS = 60;
 static const std::chrono::nanoseconds loopDuration(1000000000 / maxFPS);
 
-// Initializes cursor image data on construction.
+// Initializes cursor image data on construction, and sends the display
+// resolution back to CPICursor.
 PainterLoop::PainterLoop() : DaemonFramework::DaemonLoop(sizeof(size_t) * 2),
     imagePainter(new FBPainter::CodeImage<FBPainter::Cursor>),
     frameBuffer(FB_PATH),
     lastDrawTime(std::chrono::high_resolution_clock::now()) 
 {
-    DF_DBG("PainterLoop::PainterLoop()");
+    static size_t resolution [2];
+    resolution[0] = frameBuffer.getWidth();
+    resolution[1] = frameBuffer.getHeight();
+    DF_DBG(messagePrefix << __func__ << ": sending display resolution "
+            << resolution[0] << " x " << resolution[1] << " (size "
+            << sizeof(resolution) << ") to CPICursor.");
+    messageParent(reinterpret_cast<const unsigned char*>(&resolution),
+            sizeof(resolution));
 }
 
 
@@ -42,8 +50,6 @@ int PainterLoop::loopAction()
     {
         DrawPoint& nextPoint = (bufferedPointCount == 0) ? lastDrawn 
                 : pointBuffer[startIndex];
-        DF_DBG("DRAWPOS:" << nextPoint.x << "," << nextPoint.y
-                << ", count=" << bufferedPointCount);
         imagePainter.setImageOrigin(nextPoint.x, nextPoint.y);
         imagePainter.drawImage(&frameBuffer);
         lastDrawn = nextPoint;

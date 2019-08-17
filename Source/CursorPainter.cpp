@@ -8,10 +8,11 @@ static const constexpr char* messagePrefix = "CursorPainter::";
 
 // Launches the cursor painter daemon and prepares to send it commands.
 CursorPainter::CursorPainter() :
-DaemonFramework::DaemonControl(PAINTERD_PATH, PAINTERD_PIPE_PATH)
+DaemonFramework::DaemonControl(PAINTERD_PATH, PAINTERD_INPUT_PIPE_PATH,
+        PAINTERD_OUTPUT_PIPE_PATH, sizeof(size_t) * 2)
 {
     DBG_V(messagePrefix << __func__ << ": Starting cursorPainterd:");
-    startDaemon({});
+    startDaemon({}, &listener);
     DBG_V(messagePrefix << __func__ << ": cursorPainterd started.");
 }
 
@@ -44,4 +45,18 @@ bool CursorPainter::drawCursor(const size_t x, const size_t y)
     messageParent(reinterpret_cast<const unsigned char*>(coordinates),
             sizeof(size_t) * 2);
     return true;
+}
+
+
+// Gets the main display's width in pixels.
+size_t CursorPainter::getDisplayWidth() const
+{
+    return listener.getDisplayWidth();
+}
+
+
+// Gets the main display's height in pixels.
+size_t CursorPainter::getDisplayHeight() const
+{
+    return listener.getDisplayHeight();
 }

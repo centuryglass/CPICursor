@@ -23,7 +23,6 @@ DAEMON_FRAMEWORK_DIR:=$(PROJECT_DIR)/deps/DaemonFramework
 KD_CONFIG?=Debug
 KD_VERBOSE?=1
 KD_BUILD_DIR:=$(CURSOR_DAEMON_DIR)/build/$(KD_CONFIG)
-KD_KEY_LIMIT=6
 
 # Include main KeyDaemon makefile:
 include $(KEY_DAEMON_DIR)/Makefile

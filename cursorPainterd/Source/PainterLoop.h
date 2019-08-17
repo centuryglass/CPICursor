@@ -17,7 +17,8 @@ class PainterLoop : public DaemonFramework::DaemonLoop
 {
 public:
     /**
-     * @brief  Initializes cursor image data on construction.
+     * @brief  Initializes cursor image data on construction, and sends the
+     *         display resolution back to CPICursor.
      */
     PainterLoop();
 

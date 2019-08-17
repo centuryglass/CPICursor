@@ -11,7 +11,8 @@
 #    - BUILD_DIR
 #    - INSTALL_DIR
 #    - PARENT_PATH
-#    - PIPE_PATH
+#    - INPUT_PIPE_PATH
+#    - OUTPUT_PIPE_PATH
 #    - LOCK_PATH
 #
 # 2. Optionally, provide valid definitions for these additional variables to
@@ -55,7 +56,8 @@ build : $(TARGET_BUILD_PATH)
 DF_OBJDIR:=$(OBJDIR)/DaemonFramework
 DF_CONFIG:=$(CONFIG)
 DF_VERBOSE:=$(VERBOSE)
-DF_INPUT_PIPE_PATH:=$(PIPE_PATH)
+DF_INPUT_PIPE_PATH:=$(INPUT_PIPE_PATH)
+DF_OUTPUT_PIPE_PATH:=$(OUTPUT_PIPE_PATH)
 DF_DAEMON_PATH:=$(INSTALL_DIR)/$(TARGET_APP)
 DF_REQUIRED_PARENT_PATH:=$(PARENT_PATH)
 DF_LOCK_FILE_PATH:=$(LOCK_PATH)
@@ -88,18 +90,29 @@ $(CURSOR_CPP) : $(FBP_ENCODER)
 	$(V_AT)mv $(PAINTERD_DIR)/$(CURSOR_NAME).h $(CURSOR_H)
 	$(V_AT)mv $(PAINTERD_DIR)/$(CURSOR_NAME).cpp $(CURSOR_CPP)
 
-# Create the pipe file to be writable only by the current user, and readable
-# only by members of $(FB_GROUP)
+# Create the input pipe file, allowing only the file owner to read and write
+# the file.
+# TODO: Make the daemon run with setuid as a fake (unprivileged) user that does
+#       not own this pipe, so group permissions will apply to the daemon.
+#       Once that's done, take read permissions away from the installing user.
 INSTALLING_USER:=$$USER
-$(PIPE_PATH) :
-	@echo "Creating pipe file at \"$(PIPE_PATH)\""
-	$(V_AT)if [ -f $(PIPE_PATH) ]; then \
-	    sudo rm $(PIPE_PATH); \
+$(INPUT_PIPE_PATH) :
+	@echo "Creating input pipe file at \"$(INPUT_PIPE_PATH)\""
+	$(V_AT)if [ -f $(INPUT_PIPE_PATH) ]; then \
+	    sudo rm $(INPUT_PIPE_PATH); \
 	fi
-	$(V_AT)sudo mkfifo $(PIPE_PATH)
-	$(V_AT)sudo chown $(INSTALLING_USER):$(FB_GROUP) $(PIPE_PATH)
-	$(V_AT)sudo chmod 'u=wr,g=r,o=' $(PIPE_PATH)
+	$(V_AT)sudo mkfifo $(INPUT_PIPE_PATH)
+	$(V_AT)sudo chown $(INSTALLING_USER):$(FB_GROUP) $(INPUT_PIPE_PATH)
+	$(V_AT)sudo chmod 'u=wr,g=r,o=' $(INPUT_PIPE_PATH)
 
+$(OUTPUT_PIPE_PATH) :
+	@echo "Creating output pipe file at \"$(OUTPUT_PIPE_PATH)\""
+	$(V_AT)if [ -f $(OUTPUT_PIPE_PATH) ]; then \
+	    sudo rm $(OUTPUT_PIPE_PATH); \
+	fi
+	$(V_AT)sudo mkfifo $(OUTPUT_PIPE_PATH)
+	$(V_AT)sudo chown $(INSTALLING_USER):$(FB_GROUP) $(OUTPUT_PIPE_PATH)
+	$(V_AT)sudo chmod 'u=wr,g=w,o=' $(OUTPUT_PIPE_PATH)
 
 ############################## Set build flags: ##############################
 #### Config-specific flags: ####
@@ -191,7 +204,7 @@ clean:
 	    rm $(TARGET_BUILD_PATH); \
     fi
 
-install: $(PIPE_PATH)
+install: $(INPUT_PIPE_PATH) $(OUTPUT_PIPE_PATH)
 	@echo "Installing $(TARGET_APP):"
 	$(V_AT)if [ ! -d $(INSTALL_DIR) ]; then \
 		sudo mkdir $(INSTALL_DIR) ; \
