@@ -6,6 +6,7 @@
 
 #include "CursorPainter.h"
 #include "KeyListener.h"
+#include "Coordinator.h"
 #include "Debug.h"
 #include <iostream>
 #include <string>
@@ -61,9 +62,14 @@ int main(int argc, char** argv)
 {
     std::cout << "Starting cursor painter:\n";
     CursorPainter painter;
-    painter.drawCursor(500,500);
-    InputTester inTest;
-    KeyListener listener(inTest);
+    while(painter.getDisplayWidth() == 0)
+    {
+        sleep(1);
+    }
+    CursorTracker tracker(0, 0, painter.getDisplayWidth(),
+            painter.getDisplayHeight());
+    Coordinator coordinator(painter, tracker);
+    KeyListener listener(coordinator);
     listener.setKeyCode(KEY_UP, KeyListener::Key::up);
     listener.setKeyCode(KEY_DOWN, KeyListener::Key::down);
     listener.setKeyCode(KEY_LEFT, KeyListener::Key::left);
@@ -72,6 +78,7 @@ int main(int argc, char** argv)
     listener.setKeyCode(KEY_RIGHTALT, KeyListener::Key::rightClick);
     listener.setKeyCode(KEY_ESC, KeyListener::Key::exit);
     listener.startKeyDaemon();
+    coordinator.startUpdateLoop(60);
     sleep(30000);
     return 0;
 }

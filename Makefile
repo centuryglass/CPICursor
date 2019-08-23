@@ -210,7 +210,10 @@ LDFLAGS := -lpthread $(TARGET_ARCH) $(CONFIG_LDFLAGS) $(LDFLAGS)
 OBJECTS:=$(OBJDIR)/Main.o \
          $(OBJDIR)/CursorPainter.o \
          $(OBJDIR)/DisplayListener.o \
-         $(OBJDIR)/KeyListener.o
+         $(OBJDIR)/KeyListener.o \
+         $(OBJDIR)/CursorTracker.o \
+         $(OBJDIR)/Coordinator.o
+
 
 # Complete set of flags used to compile source files:
 BUILD_FLAGS:=$(CFLAGS) $(CXXFLAGS) $(CPPFLAGS)
@@ -264,3 +267,7 @@ $(OBJDIR)/DisplayListener.o: \
     $(SOURCE_DIR)/DisplayListener.cpp
 $(OBJDIR)/KeyListener.o: \
     $(SOURCE_DIR)/KeyListener.cpp
+$(OBJDIR)/CursorTracker.o: \
+    $(SOURCE_DIR)/CursorTracker.cpp
+$(OBJDIR)/Coordinator.o: \
+    $(SOURCE_DIR)/Coordinator.cpp

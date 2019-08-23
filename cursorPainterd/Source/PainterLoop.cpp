@@ -50,8 +50,11 @@ int PainterLoop::loopAction()
     {
         DrawPoint& nextPoint = (bufferedPointCount == 0) ? lastDrawn 
                 : pointBuffer[startIndex];
-        imagePainter.setImageOrigin(nextPoint.x, nextPoint.y);
-        imagePainter.drawImage(&frameBuffer);
+        if (lastDrawn.x != nextPoint.x || lastDrawn.y != nextPoint.y)
+        {
+            imagePainter.clearImage(&frameBuffer);
+        }
+        imagePainter.setImageOrigin(nextPoint.x, nextPoint.y, &frameBuffer);
         lastDrawn = nextPoint;
         if (bufferedPointCount > 0)
         {
