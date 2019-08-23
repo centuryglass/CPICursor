@@ -7,6 +7,17 @@ As far as I can tell, there's no good way to do this directly through X11, so I'
 
 Creating actual mouse click events is not yet implemented, but the current plan is to generate them using xdotool. Likewise, using a key binding to close CPICursor has not yet been implemented.
 
+### Testing on ClockworkPi
+This project is not yet functional, but current progress can be tested by connecting to your ClockworkPi over ssh and running the following commands:
+1. `git clone --recursive https://github.com/centuryglass/CPICursor`
+2. `cd CPICursor`
+3. `make`
+4. `make install`
+5. If you don't have it already, install xdotool with `sudo apt-get install xdotool`
+6. Run `DISPLAY=:0 xdotool key ctrl+alt+F2` to switch from X11 to tty. 
+7. Run `sudo CPICursor` and use the d-pad to test moving the cursor.
+8. When finished, run `systemctl restart` to restart your device, as xdotool won't work within tty.
+
 ### Current progress:
 #### Desktop testing
 Cursor drawing and control are both tested and working within tty on an x64 system running Arch Linux. Drawing to the framebuffer does not work when X11 is active.
